@@ -43,7 +43,8 @@
 
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1UL << PAGE_SHIFT)
-
+#define MAX_RANGE 64
+#define DELAY 1
 
 
 /* a page can either be online or offline*/
@@ -249,109 +250,17 @@ static int memory_offline(u64 addr) /*determines offlining strategy based on off
 	return do_memory_offline(addr, offline); 
 }
 
-
-// Define a struct to hold data for each offlining range
-struct offlining_stats {
-    int neighbor_range;   // The range for neighboring pages
-    int total_success;    // Successful offlines
-    int total_attempts;   // Total offline attempts
-    float success_rate;   // Success rate for this range
-};
-
-// Initialize an array of `offlining_stats` to hold stats for different ranges
-#define MAX_RANGE 10
-static struct offlining_stats stats[MAX_RANGE];
-
-// Initialize the variables needed for the offline process
-static int neighbor_range = 2;         // Initial range for neighboring pages
-static int offlining_counter = 0;      // Track the number of offlining attempts
-
-// Initialize the stats array for tracking success rates for each neighbor range
-static void initialize_stats() {
-    for (int i = 1; i < MAX_RANGE; i++) {
-        stats[i].neighbor_range = i;
-        stats[i].total_success = 0;
-        stats[i].total_attempts = 0;
-        stats[i].success_rate = 0.0f;
-    }
-}
-
 static void offline_action(struct mempage *mp, u64 addr)
 {
-    if (offline <= OFFLINE_ACCOUNT)
-        return;
-
-    Lprintf("Offlining page %llx\n", addr);
-
-    int attempt_success_count = 0;      // To count successful offlines (for OFFLINE_ACCOUNT)
-    int neighbors_offlined = 0;         // Track how many neighbors were offlined
-    int is_soft_offline = (offlining_counter % 2 == 0); // Alternates between soft and account modes
-
-    // Attempt to offline the main page
-    if (memory_offline(addr) < 0) {
-        Lprintf("Offlining page %llx failed: %s\n", addr, strerror(errno));
-        mp->offlined = PAGE_OFFLINE_FAILED;
-    } else {
-        mp->offlined = PAGE_OFFLINE;
-    }
-
-    // Loop to handle neighboring pages
-    for (int i = -neighbor_range; i <= neighbor_range; i++) {
-        if (i == 0) continue;  // Skip the original page
-
-        u64 neighbor_addr = addr + (i * PAGE_SIZE);
-        struct mempage *neighbor_mp = mempage_lookup(neighbor_addr); // Using mempage_lookup
-
-        if (!neighbor_mp) continue;
-
-        enum otype off_type = is_soft_offline ? OFFLINE_SOFT : OFFLINE_ACCOUNT;
-
-        // Offline the neighboring page
-        if (do_memory_offline(neighbor_addr, off_type) == 0) {
-            neighbors_offlined++;
-
-            // If we are in OFFLINE_ACCOUNT mode, track success (CE threshold) and update the struct
-            if (!is_soft_offline) {
-                if (neighbor_mp->triggered) {  // CE threshold met
-                    attempt_success_count++;   // Increment if threshold met
-                }
-            }
-        }
-    }
-
-    // Only update success/attempt counters if in OFFLINE_ACCOUNT mode
-    if (!is_soft_offline) {
-        // Update stats for the current neighbor range
-        stats[neighbor_range].total_success += attempt_success_count;
-        stats[neighbor_range].total_attempts += (2 * neighbor_range); // As we tried to offline 2 * neighbor_range pages
-    }
-
-    offlining_counter++; // Increment the number of offline_attempts
-
-    // Adjust the neighbor range after every 10 offlining attempts
-    if (offlining_counter % 10 == 0) {
-        // Calculate the success rate for the current neighbor range
-        struct offlining_stats *curr_stats = &stats[neighbor_range];
-        if (curr_stats->total_attempts > 0) {
-            curr_stats->success_rate = (float)curr_stats->total_success / curr_stats->total_attempts;
-        }
-
-        // Adjust the neighbor range based on the success rate
-        if (curr_stats->success_rate > 0.7 && neighbor_range < MAX_RANGE - 1) {
-            neighbor_range++;  // Increase range
-        } else if (curr_stats->success_rate < 0.3 && neighbor_range > 1) {
-            neighbor_range--;  // Decrease range
-        }
-
-        // Reset success/attempt counters for the next cycle
-        curr_stats->total_success = 0;
-        curr_stats->total_attempts = 0;
-    }
-
-    // Set the final status of the current page
-    mp->offlined = (attempt_success_count > 0) ? PAGE_OFFLINE : PAGE_OFFLINE_FAILED;
+	if (offline <= OFFLINE_ACCOUNT)
+		return;
+	Lprintf("Offlining page %llx\n", addr);
+	if (memory_offline(addr) < 0) {
+		Lprintf("Offlining page %llx failed: %s\n", addr, strerror(errno));
+		mp->offlined = PAGE_OFFLINE_FAILED;
+	} else
+		mp->offlined = PAGE_OFFLINE;
 }
-
 
 /* Run a user defined trigger when the replacement threshold of page error counter crossed. */
 static void counter_trigger(char *msg, time_t t, struct mempage_replacement *mr,
