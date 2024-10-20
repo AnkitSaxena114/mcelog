@@ -234,14 +234,32 @@ static int do_memory_offline(u64 addr, enum otype type) //writes the memory page
 
 static int do_consecutive_memory_offline(u64 addr, int num_pages, enum otype type)
 {
-    for (int i = 0; i < num_pages; i++) { //iterates through consecutive number of pages 
-        u64 page_addr = addr + (i * PAGE_SIZE);  // Calculate consecutive page addresses
-        if (do_memory_offline(page_addr, type) < 0) { //if do_memory_offline fails
-            Lprintf("Offlining page %llx failed\n", page_addr);
+for (int i = 0; i <= num_pages; i++) {
+        // Offline base page first
+        if (i == 0) {
+            if (do_memory_offline(addr, type) < 0) {
+                Lprintf("Offlining base page %llx failed\n", addr);
+                return -1;
+            }
+            continue;  // Move to next iteration to offline + and - pages
+        }
+
+        // Offline page in the + direction
+        u64 page_addr_pos = addr + (i * PAGE_SIZE);
+        if (do_memory_offline(page_addr_pos, type) < 0) {
+            Lprintf("Offlining page %llx in + direction failed\n", page_addr_pos);
+            return -1;
+        }
+
+        // Offline page in the - direction
+        u64 page_addr_neg = addr - (i * PAGE_SIZE);
+        if (do_memory_offline(page_addr_neg, type) < 0) {
+            Lprintf("Offlining page %llx in - direction failed\n", page_addr_neg);
             return -1;
         }
     }
-    return 0;
+    
+    return 0;  // Success after offlining all pages
 }
 
 // ----------------------------------------
